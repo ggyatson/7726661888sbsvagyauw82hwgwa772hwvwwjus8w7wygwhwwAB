@@ -143,7 +143,7 @@ PlayerTab:CreateToggle({
 
 PlayerTab:CreateSlider({
     Name = "Speed Amount",
-    Range = {0.1, 1},
+    Range = {0.05, 1},
     Increment = 0.05,
     Suffix = "x",
     CurrentValue = 0.1,
