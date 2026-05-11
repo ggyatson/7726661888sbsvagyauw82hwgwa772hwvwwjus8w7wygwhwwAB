@@ -1,0 +1,356 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local Char = player.Character or player.CharacterAdded:Wait()
+local Hrp = Char:WaitForChild("HumanoidRootPart")
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Config = {
+    autoRageGreenEnabled  = false,
+    autoPerfectEnabled    = false,
+    autoGreatEnabled      = false,
+    autoGoodEnabled       = false,
+    autoMediocreEnabled   = false,
+    randomShotEnabled     = false,
+    randomShotTypes       = {},
+    cframeSpeedEnabled    = false,
+    cframeSpeedAmount     = 0.05,
+    removeTexturesEnabled = false,
+}
+
+local Shoot = ReplicatedStorage.Packages.Knit.Services.ControlService.RE.Shoot
+local visualGui = player.PlayerGui:WaitForChild("Visual")
+local shootingElement = visualGui:WaitForChild("Shooting")
+local bar = shootingElement:FindFirstChild("Bar")
+
+local shotPowerMap = {
+    Perfect  = 1.00,
+    Great    = 0.95,
+    Good     = 0.90,
+    Mediocre = 0.80,
+}
+
+local function getRandomShotPower()
+    if #Config.randomShotTypes == 0 then return 1.0 end
+    return shotPowerMap[Config.randomShotTypes[math.random(1, #Config.randomShotTypes)]] or 1.0
+end
+
+local function rageGreenShoot()
+    local char = player.Character
+    if char and char:FindFirstChild("Basketball") and bar then
+        bar:TweenSize(UDim2.fromScale(1,1), Enum.EasingDirection.Out, Enum.EasingStyle.Linear, 0.001, true)
+        bar.Size = UDim2.fromScale(1,1)
+    end
+end
+
+task.spawn(function()
+    local mainGui = player.PlayerGui:WaitForChild("Main", 10)
+    if not mainGui then return end
+    local holder = mainGui:FindFirstChild("Mobile") and mainGui.Mobile:FindFirstChild("Holder")
+    local btn = holder and holder:FindFirstChild("Shoot")
+    if not btn then return end
+    for _, e in ipairs({"MouseButton1Click", "MouseButton1Down", "Activated"}) do
+        pcall(function()
+            btn[e]:Connect(function()
+                if Config.autoRageGreenEnabled then rageGreenShoot() end
+            end)
+        end)
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gp)
+    if not gp and input.KeyCode == Enum.KeyCode.E and Config.autoRageGreenEnabled then
+        rageGreenShoot()
+    end
+end)
+
+local visibleConn = nil
+
+local function anyAutoTimingOn()
+    return Config.autoPerfectEnabled or Config.autoGreatEnabled
+        or Config.autoGoodEnabled or Config.autoMediocreEnabled
+        or Config.randomShotEnabled
+end
+
+local function enableAutoShoot()
+    if visibleConn then return end
+    visibleConn = shootingElement:GetPropertyChangedSignal("Visible"):Connect(function()
+        if shootingElement.Visible == true then
+            task.wait(0.25)
+            local power
+            if Config.randomShotEnabled and #Config.randomShotTypes > 0 then
+                power = getRandomShotPower()
+            elseif Config.autoPerfectEnabled  then power = 1.00
+            elseif Config.autoGreatEnabled    then power = 0.95
+            elseif Config.autoGoodEnabled     then power = 0.90
+            elseif Config.autoMediocreEnabled then power = 0.80
+            end
+            if power then Shoot:FireServer(power) end
+        end
+    end)
+end
+
+local function refreshAutoShoot()
+    if anyAutoTimingOn() then
+        enableAutoShoot()
+    else
+        if visibleConn then visibleConn:Disconnect(); visibleConn = nil end
+    end
+end
+
+local cframeConn = nil
+
+local function startCframeSpeed()
+    if cframeConn then cframeConn:Disconnect() end
+    cframeConn = RunService.RenderStepped:Connect(function()
+        if not Config.cframeSpeedEnabled then return end
+        local char = player.Character
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not root or not hum then return end
+        local mv = hum.MoveDirection
+        if mv.Magnitude > 0 then
+            root.CFrame = root.CFrame + mv.Unit * Config.cframeSpeedAmount
+        end
+    end)
+end
+
+local function stopCframeSpeed()
+    if cframeConn then cframeConn:Disconnect(); cframeConn = nil end
+end
+
+player.CharacterAdded:Connect(function()
+    task.wait(1)
+    if Config.cframeSpeedEnabled then startCframeSpeed() end
+end)
+
+local removedTextures = {}
+local textureConn = nil
+
+local function processObject(v)
+    if v:IsA("Texture") or v:IsA("Decal") or v:IsA("SpecialMesh") or v:IsA("SurfaceAppearance") then
+        local stored = { obj = v, trans = v.Transparency }
+        if v:IsA("Texture") or v:IsA("Decal") then
+            stored.texId = v.Texture
+        end
+        table.insert(removedTextures, stored)
+        pcall(function() v.Transparency = 1 end)
+        pcall(function()
+            if v:IsA("Texture") or v:IsA("Decal") then
+                v.Texture = ""
+            end
+        end)
+        if v:IsA("SurfaceAppearance") then
+            pcall(function() v:Destroy() end)
+        end
+    elseif v:IsA("BasePart") then
+        local stored = { obj = v, mat = v.Material, color = v.Color }
+        table.insert(removedTextures, stored)
+        pcall(function()
+            v.Material = Enum.Material.SmoothPlastic
+        end)
+    end
+end
+
+local function removeTextures()
+    for _, v in ipairs(workspace:GetDescendants()) do
+        pcall(function() processObject(v) end)
+    end
+    textureConn = workspace.DescendantAdded:Connect(function(v)
+        if Config.removeTexturesEnabled then
+            task.wait()
+            pcall(function() processObject(v) end)
+        end
+    end)
+end
+
+local function restoreTextures()
+    if textureConn then textureConn:Disconnect(); textureConn = nil end
+    for _, t in ipairs(removedTextures) do
+        pcall(function()
+            if t.trans ~= nil then t.obj.Transparency = t.trans end
+            if t.texId  ~= nil then t.obj.Texture = t.texId end
+            if t.mat    ~= nil then t.obj.Material = t.mat end
+            if t.color  ~= nil then t.obj.Color = t.color end
+        end)
+    end
+    removedTextures = {}
+end
+
+local Window = Rayfield:CreateWindow({
+    Name = "Honey Hub",
+    LoadingTitle = "Honey Hub",
+    LoadingSubtitle = "Basketball Legends",
+    Theme = "Default",
+    DisableRayfieldPrompts = false,
+    DisableBuildWarnings = false,
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "HoneyHub",
+        FileName = "Config",
+    },
+    KeySystem = false,
+})
+
+local ShootTab = Window:CreateTab("Shooting", "target")
+
+ShootTab:CreateSection("Rage")
+
+ShootTab:CreateToggle({
+    Name = "Auto Rage Green",
+    CurrentValue = false,
+    Flag = "AutoRageGreen",
+    Callback = function(v) Config.autoRageGreenEnabled = v end,
+})
+
+ShootTab:CreateSection("Auto shoot")
+
+ShootTab:CreateToggle({
+    Name = "Auto Perfect",
+    CurrentValue = false,
+    Flag = "AutoPerfect",
+    Callback = function(v) Config.autoPerfectEnabled = v; refreshAutoShoot() end,
+})
+
+ShootTab:CreateToggle({
+    Name = "Auto Great",
+    CurrentValue = false,
+    Flag = "AutoGreat",
+    Callback = function(v) Config.autoGreatEnabled = v; refreshAutoShoot() end,
+})
+
+ShootTab:CreateToggle({
+    Name = "Auto Good",
+    CurrentValue = false,
+    Flag = "AutoGood",
+    Callback = function(v) Config.autoGoodEnabled = v; refreshAutoShoot() end,
+})
+
+ShootTab:CreateToggle({
+    Name = "Auto Mediocre",
+    CurrentValue = false,
+    Flag = "AutoMediocre",
+    Callback = function(v) Config.autoMediocreEnabled = v; refreshAutoShoot() end,
+})
+
+ShootTab:CreateSection("Shot Randomization")
+
+ShootTab:CreateToggle({
+    Name = "Shot Type Randomization",
+    CurrentValue = false,
+    Flag = "RandomShot",
+    Callback = function(v) Config.randomShotEnabled = v; refreshAutoShoot() end,
+})
+
+ShootTab:CreateDropdown({
+    Name = "Random Pool",
+    Options = {"Perfect", "Great", "Good", "Mediocre"},
+    CurrentOption = {},
+    MultipleOptions = true,
+    Flag = "RandomShotTypes",
+    Callback = function(v) Config.randomShotTypes = v end,
+})
+
+local PlayerTab = Window:CreateTab("Player", "user")
+
+PlayerTab:CreateSection("CFrame Speed")
+
+PlayerTab:CreateToggle({
+    Name = "CFrame Speed",
+    CurrentValue = false,
+    Flag = "CframeSpeed",
+    Callback = function(v)
+        Config.cframeSpeedEnabled = v
+        if v then startCframeSpeed() else stopCframeSpeed() end
+    end,
+})
+
+PlayerTab:CreateSlider({
+    Name = "CFrame Speed Amount",
+    Range = {1, 10},
+    Increment = 1,
+    Suffix = " (x0.05)",
+    CurrentValue = 1,
+    Flag = "CframeSpeedAmount",
+    Callback = function(v)
+        Config.cframeSpeedAmount = v * 0.05
+    end,
+})
+
+local MiscTab = Window:CreateTab("Misc", "package")
+
+MiscTab:CreateSection("Visuals")
+
+MiscTab:CreateToggle({
+    Name = "Remove Textures",
+    CurrentValue = false,
+    Flag = "RemoveTextures",
+    Callback = function(v)
+        Config.removeTexturesEnabled = v
+        if v then removeTextures() else restoreTextures() end
+    end,
+})
+
+local SettingsTab = Window:CreateTab("Settings", "settings")
+
+SettingsTab:CreateSection("Configuration")
+
+SettingsTab:CreateButton({
+    Name = "Save Config",
+    Callback = function()
+        Rayfield:SaveConfig()
+        Rayfield:Notify({ Title = "Saved", Content = "Config saved.", Duration = 3, Image = "check-circle" })
+    end,
+})
+
+SettingsTab:CreateButton({
+    Name = "Load Config",
+    Callback = function()
+        Rayfield:LoadConfig()
+        Rayfield:Notify({ Title = "Loaded", Content = "Config loaded.", Duration = 3, Image = "refresh-cw" })
+    end,
+})
+
+SettingsTab:CreateSection("Appearance")
+
+SettingsTab:CreateDropdown({
+    Name = "Theme",
+    Options = {"Default", "Amethyst", "Bloom", "DarkBlue", "Green", "Light", "Ocean", "Serenity"},
+    CurrentOption = {"Default"},
+    Flag = "UITheme",
+    Callback = function(v) Rayfield:ChangeTheme(v[1] or v) end,
+})
+
+SettingsTab:CreateSection("Keybinds")
+
+SettingsTab:CreateKeybind({
+    Name = "Toggle UI",
+    CurrentKeybind = "RightControl",
+    HoldToInteract = false,
+    Flag = "UIToggleKey",
+    Callback = function() Rayfield:ToggleVisibility() end,
+})
+
+SettingsTab:CreateSection("Unload")
+
+SettingsTab:CreateButton({
+    Name = "Unload Script",
+    Callback = function()
+        refreshAutoShoot()
+        stopCframeSpeed()
+        if Config.removeTexturesEnabled then restoreTextures() end
+        Rayfield:Destroy()
+    end,
+})
+
+Rayfield:Notify({
+    Title = "Honey Hub Loaded",
+    Content = "Basketball Legends | Ready",
+    Duration = 4,
+    Image = "check-circle",
+})
