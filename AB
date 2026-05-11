@@ -1,0 +1,230 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+local ShootRemote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Shoot")
+
+local autoPerfect = false
+local cfSpeedEnabled = false
+local cfSpeedAmount = 0.1
+local quickTPEnabled = false
+local quickTPKey = Enum.KeyCode.F
+local quickTPDist = 15
+local removeTexture = false
+local savedMaterials = {}
+
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+    if self == ShootRemote and getnamecallmethod() == "FireServer" then
+        local args = {...}
+        if args[1] == true then
+            return oldNamecall(self, true, 100, args[3], args[4])
+        elseif args[1] == false and autoPerfect then
+            return oldNamecall(self, false, -1, args[3])
+        end
+    end
+    return oldNamecall(self, ...)
+end))
+
+RunService.Heartbeat:Connect(function(dt)
+    if not cfSpeedEnabled then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+    local dir = hum.MoveDirection
+    if dir.Magnitude > 0 then
+        hrp.CFrame = hrp.CFrame + dir * (cfSpeedAmount * 150) * dt
+    end
+end)
+
+local function doQuickTP()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    hrp.CFrame = hrp.CFrame + hrp.CFrame.LookVector * quickTPDist
+end
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if quickTPEnabled and input.KeyCode == quickTPKey then
+        doQuickTP()
+    end
+end)
+
+local function removeTextures()
+    for _, p in ipairs(workspace:GetDescendants()) do
+        if p:IsA("BasePart") then
+            savedMaterials[p] = p.Material
+            p.Material = Enum.Material.SmoothPlastic
+        end
+    end
+end
+
+local function restoreTextures()
+    for part, mat in pairs(savedMaterials) do
+        if part and part.Parent then
+            part.Material = mat
+        end
+    end
+    savedMaterials = {}
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "HoneyHubMobile"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local tpBtn = Instance.new("TextButton")
+tpBtn.Size = UDim2.new(0, 90, 0, 90)
+tpBtn.Position = UDim2.new(0.88, 0, 0.65, 0)
+tpBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+tpBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+tpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+tpBtn.Text = "TP"
+tpBtn.Font = Enum.Font.GothamBold
+tpBtn.TextSize = 16
+tpBtn.AutoButtonColor = true
+tpBtn.Visible = false
+tpBtn.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(1, 0)
+corner.Parent = tpBtn
+
+tpBtn.MouseButton1Click:Connect(doQuickTP)
+
+local Window = Rayfield:CreateWindow({
+    Name = "Honey Hub",
+    LoadingTitle = "Honey Hub",
+    LoadingSubtitle = "Arcade Basketball",
+    Theme = "Default",
+    DisableRayfieldPrompts = false,
+    DisableBuildWarnings = false,
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "HoneyHub",
+        FileName = "Config"
+    },
+    KeySystem = false,
+})
+
+local ShootTab = Window:CreateTab("Shooting", 4483362458)
+
+ShootTab:CreateToggle({
+    Name = "Auto Perfect",
+    CurrentValue = false,
+    Flag = "AutoPerfect",
+    Callback = function(v)
+        autoPerfect = v
+    end,
+})
+
+local PlayerTab = Window:CreateTab("Player", 4483362458)
+
+PlayerTab:CreateSection("Movement")
+
+PlayerTab:CreateToggle({
+    Name = "CFrame Speed",
+    CurrentValue = false,
+    Flag = "CFrameSpeed",
+    Callback = function(v)
+        cfSpeedEnabled = v
+    end,
+})
+
+PlayerTab:CreateSlider({
+    Name = "Speed Amount",
+    Range = {0.1, 1},
+    Increment = 0.1,
+    Suffix = "x",
+    CurrentValue = 0.1,
+    Flag = "SpeedAmount",
+    Callback = function(v)
+        cfSpeedAmount = v
+    end,
+})
+
+PlayerTab:CreateDivider()
+
+PlayerTab:CreateSection("Quick TP")
+
+PlayerTab:CreateToggle({
+    Name = "Quick TP",
+    CurrentValue = false,
+    Flag = "QuickTP",
+    Callback = function(v)
+        quickTPEnabled = v
+    end,
+})
+
+PlayerTab:CreateKeybind({
+    Name = "Quick TP Keybind",
+    CurrentKeybind = "F",
+    HoldToInteract = false,
+    Flag = "QuickTPKey",
+    Callback = function(key)
+        quickTPKey = Enum.KeyCode[key]
+    end,
+})
+
+PlayerTab:CreateToggle({
+    Name = "Show Mobile TP Button",
+    CurrentValue = false,
+    Flag = "MobileTPToggle",
+    Callback = function(v)
+        tpBtn.Visible = v
+    end,
+})
+
+PlayerTab:CreateSlider({
+    Name = "TP Distance",
+    Range = {5, 30},
+    Increment = 1,
+    Suffix = " studs",
+    CurrentValue = 15,
+    Flag = "TPDistance",
+    Callback = function(v)
+        quickTPDist = v
+    end,
+})
+
+local MiscTab = Window:CreateTab("Misc", 4483362458)
+
+MiscTab:CreateSection("Visual")
+
+MiscTab:CreateToggle({
+    Name = "Remove Textures",
+    CurrentValue = false,
+    Flag = "RemoveTextures",
+    Callback = function(v)
+        removeTexture = v
+        if v then removeTextures() else restoreTextures() end
+    end,
+})
+
+local SettingsTab = Window:CreateTab("Settings", 4483362458)
+
+SettingsTab:CreateSection("Configuration")
+
+SettingsTab:CreateButton({
+    Name = "Save Config",
+    Callback = function()
+        Rayfield:Notify({ Title = "Honey Hub", Content = "Config saved.", Duration = 3, Image = 4483362458 })
+    end,
+})
+
+SettingsTab:CreateButton({
+    Name = "Reset Config",
+    Callback = function()
+        Rayfield:Notify({ Title = "Honey Hub", Content = "Config reset.", Duration = 3, Image = 4483362458 })
+    end,
+})
