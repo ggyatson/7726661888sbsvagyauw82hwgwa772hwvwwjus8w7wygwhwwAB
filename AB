@@ -11,6 +11,8 @@ local ShootRemote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Shoot
 local autoPerfect = false
 local cfSpeedEnabled = false
 local cfSpeedAmount = 0.1
+local walkspeedEnabled = false
+local walkspeedAmount = 16
 local quickTPEnabled = false
 local quickTPKey = Enum.KeyCode.F
 local quickTPDist = 15
@@ -40,6 +42,21 @@ RunService.Heartbeat:Connect(function(dt)
     local dir = hum.MoveDirection
     if dir.Magnitude > 0 then
         hrp.CFrame = hrp.CFrame + dir * (cfSpeedAmount * 150) * dt
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if walkspeedEnabled then
+            local char = LocalPlayer.Character
+            if char then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum.WalkSpeed = walkspeedAmount
+                end
+            end
+        end
     end
 end)
 
@@ -150,6 +167,36 @@ PlayerTab:CreateSlider({
     Flag = "SpeedAmount",
     Callback = function(v)
         cfSpeedAmount = v
+    end,
+})
+
+PlayerTab:CreateDivider()
+
+PlayerTab:CreateToggle({
+    Name = "Walkspeed",
+    CurrentValue = false,
+    Flag = "WalkspeedToggle",
+    Callback = function(v)
+        walkspeedEnabled = v
+        if not v then
+            local char = LocalPlayer.Character
+            if char then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then hum.WalkSpeed = 16 end
+            end
+        end
+    end,
+})
+
+PlayerTab:CreateSlider({
+    Name = "Walkspeed Amount",
+    Range = {16, 25},
+    Increment = 1,
+    Suffix = " ws",
+    CurrentValue = 16,
+    Flag = "WalkspeedAmount",
+    Callback = function(v)
+        walkspeedAmount = v
     end,
 })
 
