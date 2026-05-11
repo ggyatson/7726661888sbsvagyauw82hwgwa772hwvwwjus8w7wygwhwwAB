@@ -1,4 +1,6 @@
-if game.PlaceId == 134558434771720 then
+if game.PlaceId == 14259168147 then
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/ggyatson/7726661888sbsvagyauw82hwgwa772hwvwwjus8w7wygwhwwAB/refs/heads/main/BL"))()
+elseif game.PlaceId == 134558434771720 then
     loadstring(game:HttpGet("https://raw.githubusercontent.com/ggyatson/7726661888sbsvagyauw82hwgwa772hwvwwjus8w7wygwhwwAB/refs/heads/main/AB"))()
 else
     game:GetService("Players").LocalPlayer:Kick("This game is not supported")
