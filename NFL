@@ -1,0 +1,740 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local Workspace = game:GetService("Workspace")
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local plr = Players.LocalPlayer
+local character = plr.Character or plr.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
+
+local mechMod = ReplicatedStorage:FindFirstChild("Assets")
+    and ReplicatedStorage.Assets:FindFirstChild("Modules")
+    and ReplicatedStorage.Assets.Modules:FindFirstChild("Client")
+    and ReplicatedStorage.Assets.Modules.Client:FindFirstChild("Mechanics")
+if mechMod then mechMod = require(mechMod) end
+
+local ConnectionManager = {}
+ConnectionManager.connections = {}
+function ConnectionManager:Add(name, conn)
+    if self.connections[name] then self.connections[name]:Disconnect() end
+    self.connections[name] = conn
+end
+function ConnectionManager:Remove(name)
+    if self.connections[name] then self.connections[name]:Disconnect(); self.connections[name] = nil end
+end
+function ConnectionManager:CleanupAll()
+    for _, conn in pairs(self.connections) do if conn then conn:Disconnect() end end
+    self.connections = {}
+end
+
+local pullVectorEnabled = false
+local smoothPullEnabled = false
+local isPullingBall = false
+local isLegitPulling = false
+local pullButtonActive = false
+local legPullButtonActive = false
+local showPullButton = false
+local showLegitButton = false
+local walkSpeedEnabled = false
+local jumpPowerEnabled = false
+local staminaDepletionEnabled = false
+local cframeSpeedEnabled = false
+
+local pullKeybind = Enum.KeyCode.E
+local legitPullKeybind = Enum.KeyCode.Q
+
+local offsetDistance = 15
+local magnetSmoothness = 0.20
+local customWalkSpeed = 16
+local customJumpPower = 50
+local maxPullDistance = 35
+local cframeSpeedAmount = 0.1
+
+local jumpConnection = nil
+local walkSpeedConnection = nil
+local cframeConnection = nil
+
+local Elements = {}
+
+local CONFIG_FOLDER = "HoneyHub"
+local CONFIG_PATH = "HoneyHub/Configs"
+local selectedConfigName = ""
+
+local function ensureFolders()
+    pcall(function()
+        if not isfolder(CONFIG_FOLDER) then makefolder(CONFIG_FOLDER) end
+        if not isfolder(CONFIG_PATH) then makefolder(CONFIG_PATH) end
+    end)
+end
+
+local function listConfigs()
+    local names = {}
+    pcall(function()
+        ensureFolders()
+        for _, path in ipairs(listfiles(CONFIG_PATH)) do
+            local name = path:match("([^/\\]+)%.json$")
+            if name then table.insert(names, name) end
+        end
+    end)
+    return #names > 0 and names or {"No configs"}
+end
+
+local function saveConfig(name)
+    if not name or name == "" then
+        Rayfield:Notify({ Title = "Config", Content = "Enter a config name first.", Duration = 3, Image = "alert-circle" })
+        return
+    end
+    local data = {}
+    for key, element in pairs(Elements) do
+        pcall(function()
+            data[key] = element.CurrentValue
+        end)
+    end
+    local ok, err = pcall(function()
+        ensureFolders()
+        writefile(CONFIG_PATH .. "/" .. name .. ".json", HttpService:JSONEncode(data))
+    end)
+    if ok then
+        Rayfield:Notify({ Title = "Config Saved", Content = "Saved as: " .. name, Duration = 3, Image = "check-circle" })
+    else
+        Rayfield:Notify({ Title = "Save Failed", Content = tostring(err), Duration = 4, Image = "alert-circle" })
+    end
+end
+
+local function loadConfig(name)
+    if not name or name == "" or name == "No configs" then
+        Rayfield:Notify({ Title = "Config", Content = "Select a valid config.", Duration = 3, Image = "alert-circle" })
+        return
+    end
+    local ok, err = pcall(function()
+        local content = readfile(CONFIG_PATH .. "/" .. name .. ".json")
+        local data = HttpService:JSONDecode(content)
+        for key, value in pairs(data) do
+            pcall(function()
+                if Elements[key] then
+                    Elements[key]:Set(value)
+                end
+            end)
+        end
+    end)
+    if ok then
+        Rayfield:Notify({ Title = "Config Loaded", Content = "Loaded: " .. name, Duration = 3, Image = "refresh-cw" })
+    else
+        Rayfield:Notify({ Title = "Load Failed", Content = tostring(err), Duration = 4, Image = "alert-circle" })
+    end
+end
+
+local function deleteConfig(name)
+    if not name or name == "" or name == "No configs" then
+        Rayfield:Notify({ Title = "Config", Content = "Select a valid config to delete.", Duration = 3, Image = "alert-circle" })
+        return
+    end
+    local ok = pcall(function()
+        delfile(CONFIG_PATH .. "/" .. name .. ".json")
+    end)
+    if ok then
+        Rayfield:Notify({ Title = "Config Deleted", Content = "Deleted: " .. name, Duration = 3, Image = "check-circle" })
+    else
+        Rayfield:Notify({ Title = "Delete Failed", Content = "Could not delete config.", Duration = 3, Image = "alert-circle" })
+    end
+end
+
+plr.CharacterAdded:Connect(function(char)
+    character = char
+    humanoidRootPart = char:WaitForChild("HumanoidRootPart")
+    humanoid = char:WaitForChild("Humanoid")
+end)
+
+local function getFootball()
+    local parkMap = Workspace:FindFirstChild("ParkMap")
+    if parkMap and parkMap:FindFirstChild("Replicated") then
+        local fields = parkMap.Replicated:FindFirstChild("Fields")
+        if fields then
+            local parkFields = {
+                fields:FindFirstChild("LeftField"), fields:FindFirstChild("RightField"),
+                fields:FindFirstChild("BLeftField"), fields:FindFirstChild("BRightField"),
+                fields:FindFirstChild("HighField"), fields:FindFirstChild("TLeftField"),
+                fields:FindFirstChild("TRightField")
+            }
+            for _, field in ipairs(parkFields) do
+                if field and field:FindFirstChild("Replicated") then
+                    local football = field.Replicated:FindFirstChild("Football")
+                    if football and football:IsA("BasePart") then return football end
+                end
+            end
+        end
+    end
+    local gamesFolder = Workspace:FindFirstChild("Games")
+    if gamesFolder then
+        for _, gameInstance in ipairs(gamesFolder:GetChildren()) do
+            local replicatedFolder = gameInstance:FindFirstChild("Replicated")
+            if replicatedFolder then
+                for _, item in ipairs(replicatedFolder:GetChildren()) do
+                    if item:IsA("BasePart") and item.Name == "Football" then return item end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function teleportToBall()
+    local ball = getFootball()
+    if ball and humanoidRootPart then
+        if Workspace:FindFirstChild("ParkMap") then
+            if (ball.Position - humanoidRootPart.Position).Magnitude > maxPullDistance then return end
+        end
+        local ballVelocity = ball.Velocity
+        local ballPosition = ball.Position
+        local direction = ballVelocity.Unit
+        local targetPosition = ballPosition + (direction * 12) - Vector3.new(0, 1.5, 0) + Vector3.new(0, 5.197499752044678 / 6, 0)
+        local lookDirection = (ballPosition - humanoidRootPart.Position).Unit
+        humanoidRootPart.CFrame = CFrame.new(targetPosition, targetPosition + lookDirection)
+    end
+end
+
+local function smoothTeleportToBall()
+    local ball = getFootball()
+    if ball and humanoidRootPart then
+        if Workspace:FindFirstChild("ParkMap") then
+            if (ball.Position - humanoidRootPart.Position).Magnitude > maxPullDistance then return end
+        end
+        local ballVelocity = ball.Velocity
+        local ballSpeed = ballVelocity.Magnitude
+        local offset = (ballSpeed > 0) and (ballVelocity.Unit * offsetDistance) or Vector3.new(0, 0, 0)
+        local targetPosition = ball.Position + offset + Vector3.new(0, 3, 0)
+        local lookDirection = (ball.Position - humanoidRootPart.Position).Unit
+        humanoidRootPart.CFrame = humanoidRootPart.CFrame:Lerp(CFrame.new(targetPosition, targetPosition + lookDirection), magnetSmoothness)
+    end
+end
+
+local pullButtonGui = Instance.new("ScreenGui")
+pullButtonGui.Name = "HoneyHubPullGui"
+pullButtonGui.ResetOnSpawn = false
+pullButtonGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+pullButtonGui.Parent = plr:WaitForChild("PlayerGui")
+
+local function makeButton(text, position)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(0, 90, 0, 90)
+    container.Position = position
+    container.BackgroundTransparency = 1
+    container.Active = true
+    container.Parent = pullButtonGui
+
+    local shadow = Instance.new("Frame")
+    shadow.Size = UDim2.new(1, 4, 1, 4)
+    shadow.Position = UDim2.new(0, -2, 0, -2)
+    shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    shadow.BackgroundTransparency = 0.6
+    shadow.BorderSizePixel = 0
+    shadow.ZIndex = 1
+    shadow.Parent = container
+    Instance.new("UICorner", shadow).CornerRadius = UDim.new(1, 0)
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 1, 0)
+    btn.Position = UDim2.new(0, 0, 0, 0)
+    btn.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+    btn.BorderSizePixel = 0
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    btn.ZIndex = 2
+    btn.Parent = container
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(1, 0)
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(100, 100, 120)
+    stroke.Thickness = 1.5
+    stroke.Transparency = 0.3
+    stroke.Parent = btn
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0.5, 0)
+    label.Position = UDim2.new(0, 0, 0.25, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 15
+    label.ZIndex = 3
+    label.Parent = btn
+
+    local dot = Instance.new("Frame")
+    dot.Size = UDim2.new(0, 8, 0, 8)
+    dot.Position = UDim2.new(0.5, -4, 0.75, 0)
+    dot.BackgroundColor3 = Color3.fromRGB(80, 80, 100)
+    dot.BorderSizePixel = 0
+    dot.ZIndex = 3
+    dot.Parent = btn
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+    return container, btn, stroke, dot
+end
+
+local pullContainer, pullButton, pullStroke, pullDot     = makeButton("PULL",  UDim2.new(0.85, 0, 0.38, 0))
+local legContainer,  legPullButton, legStroke, legDot   = makeButton("LEGIT", UDim2.new(0.85, 0, 0.24, 0))
+
+pullContainer.Visible = false
+legContainer.Visible  = false
+
+local function setPullActive(active)
+    pullButtonActive = active
+    isPullingBall    = active
+    if active then
+        pullButton.BackgroundColor3 = Color3.fromRGB(20, 80, 200)
+        pullStroke.Color = Color3.fromRGB(80, 150, 255)
+        pullDot.BackgroundColor3   = Color3.fromRGB(80, 150, 255)
+    else
+        pullButton.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+        pullStroke.Color = Color3.fromRGB(100, 100, 120)
+        pullDot.BackgroundColor3   = Color3.fromRGB(80, 80, 100)
+    end
+end
+
+local function setLegitActive(active)
+    legPullButtonActive = active
+    isLegitPulling      = active
+    if active then
+        legPullButton.BackgroundColor3 = Color3.fromRGB(20, 130, 80)
+        legStroke.Color = Color3.fromRGB(60, 220, 120)
+        legDot.BackgroundColor3        = Color3.fromRGB(60, 220, 120)
+    else
+        legPullButton.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+        legStroke.Color = Color3.fromRGB(100, 100, 120)
+        legDot.BackgroundColor3        = Color3.fromRGB(80, 80, 100)
+    end
+end
+
+pullButton.MouseButton1Down:Connect(function()
+    if not pullVectorEnabled then return end
+    setPullActive(true)
+    task.spawn(function()
+        while isPullingBall and pullVectorEnabled do teleportToBall(); task.wait(0.05) end
+    end)
+end)
+pullButton.MouseButton1Up:Connect(function() setPullActive(false) end)
+
+legPullButton.MouseButton1Down:Connect(function()
+    if not smoothPullEnabled then return end
+    setLegitActive(true)
+    task.spawn(function()
+        while isLegitPulling and smoothPullEnabled do smoothTeleportToBall(); task.wait(0.01) end
+    end)
+end)
+legPullButton.MouseButton1Up:Connect(function() setLegitActive(false) end)
+
+UserInputService.TouchEnded:Connect(function()
+    if pullButtonActive   then setPullActive(false)   end
+    if legPullButtonActive then setLegitActive(false) end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == pullKeybind and pullVectorEnabled then
+        setPullActive(true)
+        task.spawn(function()
+            while isPullingBall and pullVectorEnabled do teleportToBall(); task.wait(0.05) end
+        end)
+    end
+    if input.KeyCode == legitPullKeybind and smoothPullEnabled then
+        setLegitActive(true)
+        task.spawn(function()
+            while isLegitPulling and smoothPullEnabled do smoothTeleportToBall(); task.wait(0.01) end
+        end)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == pullKeybind      then setPullActive(false)   end
+    if input.KeyCode == legitPullKeybind then setLegitActive(false)  end
+end)
+
+local Window = Rayfield:CreateWindow({
+    Name = "Honey Hub",
+    LoadingTitle = "Honey Hub",
+    LoadingSubtitle = "NFL Universe",
+    Theme = "Default",
+    DisableRayfieldPrompts = false,
+    DisableBuildWarnings = false,
+    ConfigurationSaving = { Enabled = false },
+    KeySystem = false,
+})
+
+local CatchTab = Window:CreateTab("Catching", "target")
+
+CatchTab:CreateSection("Pull Vector")
+
+Elements["PullVector"] = CatchTab:CreateToggle({
+    Name = "Pull Vector",
+    CurrentValue = false,
+    Flag = "PullVector",
+    Callback = function(v)
+        pullVectorEnabled = v
+        if not v then setPullActive(false) end
+        pullContainer.Visible = showPullButton and v
+    end,
+})
+
+Elements["ShowPullBtn"] = CatchTab:CreateToggle({
+    Name = "Show Mobile Button",
+    CurrentValue = false,
+    Flag = "ShowPullBtn",
+    Callback = function(v)
+        showPullButton = v
+        pullContainer.Visible = v and pullVectorEnabled
+    end,
+})
+
+CatchTab:CreateKeybind({
+    Name = "Pull Vector Key (Hold)",
+    CurrentKeybind = "E",
+    HoldToInteract = false,
+    Flag = "PullKey",
+    Callback = function(key)
+        pullKeybind = Enum.KeyCode[key] or Enum.KeyCode.E
+    end,
+})
+
+Elements["PullOffset"] = CatchTab:CreateSlider({
+    Name = "Offset Distance",
+    Range = {0, 30},
+    Increment = 1,
+    Suffix = " studs",
+    CurrentValue = 15,
+    Flag = "PullOffset",
+    Callback = function(v) offsetDistance = v end,
+})
+
+Elements["MaxPullDist"] = CatchTab:CreateSlider({
+    Name = "Max Pull Distance",
+    Range = {1, 100},
+    Increment = 1,
+    Suffix = " studs",
+    CurrentValue = 35,
+    Flag = "MaxPullDist",
+    Callback = function(v) maxPullDistance = v end,
+})
+
+CatchTab:CreateSection("Legit Pull Vector")
+
+Elements["LegitPull"] = CatchTab:CreateToggle({
+    Name = "Legit Pull Vector",
+    CurrentValue = false,
+    Flag = "LegitPull",
+    Callback = function(v)
+        smoothPullEnabled = v
+        if not v then setLegitActive(false) end
+        legContainer.Visible = showLegitButton and v
+    end,
+})
+
+Elements["ShowLegitBtn"] = CatchTab:CreateToggle({
+    Name = "Show Mobile Button",
+    CurrentValue = false,
+    Flag = "ShowLegitBtn",
+    Callback = function(v)
+        showLegitButton = v
+        legContainer.Visible = v and smoothPullEnabled
+    end,
+})
+
+CatchTab:CreateKeybind({
+    Name = "Legit Pull Key (Hold)",
+    CurrentKeybind = "Q",
+    HoldToInteract = false,
+    Flag = "LegitKey",
+    Callback = function(key)
+        legitPullKeybind = Enum.KeyCode[key] or Enum.KeyCode.Q
+    end,
+})
+
+Elements["Smoothness"] = CatchTab:CreateSlider({
+    Name = "Vector Smoothness",
+    Range = {1, 100},
+    Increment = 1,
+    Suffix = "%",
+    CurrentValue = 20,
+    Flag = "Smoothness",
+    Callback = function(v) magnetSmoothness = v / 100 end,
+})
+
+local PlayerTab = Window:CreateTab("Player", "user")
+
+PlayerTab:CreateSection("Speed")
+
+Elements["WalkSpeed"] = PlayerTab:CreateToggle({
+    Name = "Walk Speed",
+    CurrentValue = false,
+    Flag = "WalkSpeed",
+    Callback = function(v)
+        walkSpeedEnabled = v
+        if walkSpeedConnection then walkSpeedConnection:Disconnect(); walkSpeedConnection = nil end
+        local function setSpeed()
+            local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.WalkSpeed = walkSpeedEnabled and customWalkSpeed or 16 end
+        end
+        if v then
+            setSpeed()
+            local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+            if hum then walkSpeedConnection = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(setSpeed) end
+        else
+            setSpeed()
+        end
+    end,
+})
+
+Elements["WalkSpeedAmt"] = PlayerTab:CreateSlider({
+    Name = "Walk Speed Amount",
+    Range = {16, 50},
+    Increment = 1,
+    Suffix = " studs/s",
+    CurrentValue = 16,
+    Flag = "WalkSpeedAmt",
+    Callback = function(v)
+        customWalkSpeed = v
+        if walkSpeedEnabled then
+            local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.WalkSpeed = v end
+        end
+    end,
+})
+
+Elements["CframeSpeed"] = PlayerTab:CreateToggle({
+    Name = "CFrame Speed",
+    CurrentValue = false,
+    Flag = "CframeSpeed",
+    Callback = function(v)
+        cframeSpeedEnabled = v
+        if v then
+            if cframeConnection then cframeConnection:Disconnect() end
+            cframeConnection = RunService.RenderStepped:Connect(function()
+                if not cframeSpeedEnabled then return end
+                local char = plr.Character
+                if not char then return end
+                local root = char:FindFirstChild("HumanoidRootPart")
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if not root or not hum then return end
+                local mv = hum.MoveDirection
+                if mv.Magnitude > 0 then
+                    root.CFrame = root.CFrame + mv.Unit * cframeSpeedAmount
+                end
+            end)
+        else
+            if cframeConnection then cframeConnection:Disconnect(); cframeConnection = nil end
+        end
+    end,
+})
+
+Elements["CframeSpeedAmt"] = PlayerTab:CreateSlider({
+    Name = "CFrame Speed Amount",
+    Range = {1, 20},
+    Increment = 1,
+    Suffix = "",
+    CurrentValue = 1,
+    Flag = "CframeSpeedAmt",
+    Callback = function(v) cframeSpeedAmount = v / 10 end,
+})
+
+PlayerTab:CreateSection("Jumping")
+
+Elements["JumpPower"] = PlayerTab:CreateToggle({
+    Name = "Jump Power",
+    CurrentValue = false,
+    Flag = "JumpPower",
+    Callback = function(v)
+        jumpPowerEnabled = v
+        if v then
+            if jumpConnection then jumpConnection:Disconnect() end
+            jumpConnection = humanoid.Jumping:Connect(function()
+                if jumpPowerEnabled and humanoidRootPart then
+                    humanoidRootPart.Velocity = Vector3.new(humanoidRootPart.Velocity.X, 0, humanoidRootPart.Velocity.Z) + Vector3.new(0, customJumpPower, 0)
+                end
+            end)
+        else
+            if jumpConnection then jumpConnection:Disconnect(); jumpConnection = nil end
+        end
+    end,
+})
+
+Elements["JumpPowerAmt"] = PlayerTab:CreateSlider({
+    Name = "Jump Power Amount",
+    Range = {50, 120},
+    Increment = 1,
+    Suffix = "",
+    CurrentValue = 50,
+    Flag = "JumpPowerAmt",
+    Callback = function(v) customJumpPower = v end,
+})
+
+PlayerTab:CreateSection("Other")
+
+Elements["InfStamina"] = PlayerTab:CreateToggle({
+    Name = "Infinite Stamina",
+    CurrentValue = false,
+    Flag = "InfStamina",
+    Callback = function(v)
+        staminaDepletionEnabled = v
+        if v then
+            task.spawn(function()
+                while staminaDepletionEnabled do
+                    task.wait()
+                    if mechMod then mechMod.Stamina = 100 end
+                end
+            end)
+        end
+    end,
+})
+
+local MiscTab = Window:CreateTab("Misc", "package")
+
+MiscTab:CreateSection("Visuals")
+
+MiscTab:CreateButton({
+    Name = "Remove Textures",
+    Callback = function()
+        for _, obj in pairs(workspace:GetDescendants()) do
+            pcall(function()
+                if obj:IsA("Decal") or obj:IsA("Texture") then
+                    obj.Transparency = 1
+                    obj.Texture = ""
+                elseif obj:IsA("SurfaceAppearance") then
+                    obj:Destroy()
+                elseif obj:IsA("BasePart") then
+                    obj.Material = Enum.Material.SmoothPlastic
+                end
+            end)
+        end
+        Rayfield:Notify({ Title = "Honey Hub", Content = "Textures removed.", Duration = 3, Image = "check-circle" })
+    end,
+})
+
+MiscTab:CreateButton({
+    Name = "Gut Graphics",
+    Callback = function()
+        local lighting = game:GetService("Lighting")
+        lighting.GlobalShadows = false
+        lighting.FogEnd = 9e9
+        lighting.Brightness = 0
+        for _, effect in pairs(lighting:GetChildren()) do
+            if effect:IsA("PostEffect") then effect.Enabled = false end
+        end
+        local terrain = workspace.Terrain
+        terrain.WaterWaveSize = 0
+        terrain.WaterWaveSpeed = 0
+        terrain.WaterReflectance = 0
+        terrain.WaterTransparency = 0
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+        for _, obj in pairs(workspace:GetDescendants()) do
+            pcall(function()
+                if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Fire") or obj:IsA("Smoke") or obj:IsA("Sparkles") then
+                    obj.Enabled = false
+                elseif obj:IsA("BasePart") or obj:IsA("MeshPart") then
+                    obj.Material = Enum.Material.SmoothPlastic
+                    obj.Reflectance = 0
+                end
+            end)
+        end
+        if lighting:FindFirstChildOfClass("Sky") then lighting:FindFirstChildOfClass("Sky"):Destroy() end
+        Rayfield:Notify({ Title = "Honey Hub", Content = "Graphics gutted.", Duration = 3, Image = "check-circle" })
+    end,
+})
+
+local SettingsTab = Window:CreateTab("Settings", "settings")
+
+SettingsTab:CreateSection("Configs")
+
+SettingsTab:CreateInput({
+    Name = "Config Name",
+    PlaceholderText = "Enter config name...",
+    RemoveTextAfterFocusLost = false,
+    Flag = "ConfigNameInput",
+    Callback = function(text) selectedConfigName = text end,
+})
+
+local configDropdown = SettingsTab:CreateDropdown({
+    Name = "Select Config",
+    Options = listConfigs(),
+    CurrentOption = {"No configs"},
+    MultipleOptions = false,
+    Flag = "ConfigSelect",
+    Callback = function(v)
+        selectedConfigName = type(v) == "table" and v[1] or v
+    end,
+})
+
+SettingsTab:CreateButton({
+    Name = "Save Config",
+    Callback = function() saveConfig(selectedConfigName) end,
+})
+
+SettingsTab:CreateButton({
+    Name = "Load Config",
+    Callback = function() loadConfig(selectedConfigName) end,
+})
+
+SettingsTab:CreateButton({
+    Name = "Delete Config",
+    Callback = function()
+        deleteConfig(selectedConfigName)
+        local configs = listConfigs()
+        configDropdown:Set(configs[1])
+        selectedConfigName = configs[1]
+    end,
+})
+
+SettingsTab:CreateButton({
+    Name = "Refresh Config List",
+    Callback = function()
+        local configs = listConfigs()
+        configDropdown:Set(configs[1])
+        selectedConfigName = configs[1]
+        Rayfield:Notify({ Title = "Configs", Content = "List refreshed.", Duration = 2, Image = "refresh-cw" })
+    end,
+})
+
+SettingsTab:CreateSection("Appearance")
+
+SettingsTab:CreateDropdown({
+    Name = "Theme",
+    Options = {"Default", "Amethyst", "Bloom", "DarkBlue", "Green", "Light", "Ocean", "Serenity"},
+    CurrentOption = {"Default"},
+    Flag = "UITheme",
+    Callback = function(v) Rayfield:ChangeTheme(v[1] or v) end,
+})
+
+SettingsTab:CreateSection("Keybind")
+
+SettingsTab:CreateKeybind({
+    Name = "Toggle UI",
+    CurrentKeybind = "RightControl",
+    HoldToInteract = false,
+    Flag = "UIToggleKey",
+    Callback = function() Rayfield:ToggleVisibility() end,
+})
+
+SettingsTab:CreateSection("Danger Zone")
+
+SettingsTab:CreateButton({
+    Name = "Unload Script",
+    Callback = function()
+        ConnectionManager:CleanupAll()
+        if walkSpeedConnection then walkSpeedConnection:Disconnect() end
+        if jumpConnection       then jumpConnection:Disconnect()       end
+        if cframeConnection     then cframeConnection:Disconnect()     end
+        pullButtonGui:Destroy()
+        Rayfield:Destroy()
+    end,
+})
+
+Rayfield:Notify({
+    Title = "Honey Hub Loaded",
+    Content = "NFL Universe | Ready",
+    Duration = 4,
+    Image = "check-circle",
+})
